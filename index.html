@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moon South Pole Mission Planner (Educational)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a12; color: #e0e8f0; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; height: 100vh; }
+  #canvas-container { position: absolute; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* UI Panels */
+  .panel {
+    position: absolute; background: rgba(12, 16, 28, 0.92); border: 1px solid #2a3a5a;
+    border-radius: 10px; padding: 14px 16px; backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5); max-height: 92vh; overflow-y: auto;
+    font-size: 13px; line-height: 1.45;
+  }
+  .panel h2 { font-size: 15px; margin-bottom: 10px; color: #7ec8ff; border-bottom: 1px solid #2a3a5a; padding-bottom: 6px; }
+  .panel h3 { font-size: 13px; color: #a0c4e8; margin: 12px 0 6px; }
+  .left { top: 12px; left: 12px; width: 320px; }
+  .right { top: 12px; right: 12px; width: 340px; }
+  .bottom { bottom: 12px; left: 50%; transform: translateX(-50%); width: min(720px, 96vw); display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+
+  button, .btn {
+    background: #1a2a4a; color: #c0d8f0; border: 1px solid #3a5a8a; border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-size: 12px; margin: 3px 2px;
+  }
+  button:hover, .btn:hover { background: #2a3a6a; }
+  button.active { background: #2a5a9a; border-color: #5a9aff; }
+  input[type="range"] { width: 100%; accent-color: #4a9eff; }
+  label { display: block; margin: 6px 0 2px; color: #90b0d0; font-size: 12px; }
+  .value { color: #fff; font-weight: 600; }
+  .good { color: #4ade80; } .mod { color: #fbbf24; } .low { color: #f87171; } .bad { color: #f87171; }
+  .bar { height: 14px; background: #1a2030; border-radius: 4px; overflow: hidden; margin: 4px 0 8px; }
+  .bar > div { height: 100%; background: linear-gradient(90deg, #f59e0b, #fbbf24); transition: width 0.3s; }
+  .horizon {
+    width: 100%; height: 110px; background: #0d121c; border: 1px solid #2a3a5a; border-radius: 6px;
+    position: relative; margin: 8px 0; overflow: hidden;
+  }
+  .horizon .line { position: absolute; left: 0; right: 0; top: 55%; height: 1px; background: #4a6080; }
+  .horizon .label { position: absolute; bottom: 4px; left: 6px; font-size: 10px; color: #6080a0; }
+  .sun-marker, .earth-marker {
+    position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, -50%);
+  }
+  .sun-marker { background: #ffcc00; box-shadow: 0 0 8px #ffaa00; }
+  .earth-marker { background: #4a9eff; box-shadow: 0 0 6px #2a7aff; }
+  .arc { position: absolute; border: 1px dashed; border-radius: 50%; pointer-events: none; opacity: 0.5; }
+  .site-list { max-height: 140px; overflow-y: auto; }
+  .site-item { padding: 5px 8px; cursor: pointer; border-radius: 4px; margin: 2px 0; }
+  .site-item:hover, .site-item.selected { background: #1a3050; }
+  .disclaimer { font-size: 11px; color: #708090; margin-top: 10px; border-top: 1px solid #2a3a5a; padding-top: 8px; }
+  a { color: #6ab0ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .compare-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+  .compare-card { background: #121826; border-radius: 6px; padding: 8px; font-size: 12px; }
+  #loading { position: absolute; inset: 0; background: #0a0a12; display: flex; align-items: center; justify-content: center; z-index: 100; font-size: 18px; }
+</style>
+</head>
+<body>
+<div id="loading">Loading 3D scene…</div>
+<div id="canvas-container"></div>
+
+<!-- LEFT PANEL -->
+<div class="panel left">
+  <h2>Moon South Pole Mission Planner</h2>
+  <p style="font-size:12px;color:#90b0d0;margin-bottom:10px;">Educational interactive tool for understanding lighting & communication at the lunar South Pole.</p>
+
+  <h3>Camera Focus</h3>
+  <button id="btnEarth">Earth</button>
+  <button id="btnMoon">Moon</button>
+  <button id="btnSouthPole">South Pole</button>
+  <button id="btnReset">Reset View</button>
+
+  <h3>Mission Date</h3>
+  <label>Date slider (simplified orbital geometry)</label>
+  <input type="range" id="dateSlider" min="0" max="365" value="180" step="1">
+  <div>Selected: <span class="value" id="dateLabel">—</span></div>
+
+  <h3>Candidate Sites (approx. educational)</h3>
+  <div class="site-list" id="siteList"></div>
+  <p style="font-size:11px;color:#8090a0;margin-top:6px;">Or click any point on the Moon surface to set a custom site.</p>
+
+  <div class="disclaimer">
+    Educational simulation — simplified geometry, not mission-grade navigation.<br>
+    Coordinates approximate. Real planning uses NASA ephemerides & high-res DEMs.
+  </div>
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="panel right">
+  <h2>Selected Site Data</h2>
+  <div id="siteName" class="value" style="font-size:15px;margin-bottom:6px;">—</div>
+  <div>Lat / Lon: <span class="value" id="siteCoords">—</span></div>
+  <div style="font-size:11px;color:#8090a0;margin:4px 0 10px;">Approximate / educational values</div>
+
+  <h3>Sun (local horizon)</h3>
+  <div>Altitude: <span class="value" id="sunAlt">—</span>°</div>
+  <div>Azimuth: <span class="value" id="sunAz">—</span>°</div>
+  <div>Status: <span id="sunStatus">—</span></div>
+  <div class="bar"><div id="solarBar" style="width:0%"></div></div>
+  <div>Solar Power Est.: <span class="value" id="solarPower">—</span></div>
+
+  <div class="horizon" id="sunHorizon">
+    <div class="line"></div>
+    <div class="label">HORIZON</div>
+    <div class="sun-marker" id="sunMarker" style="display:none"></div>
+  </div>
+
+  <h3>Earth (local horizon)</h3>
+  <div>Altitude: <span class="value" id="earthAlt">—</span>°</div>
+  <div>Azimuth: <span class="value" id="earthAz">—</span>°</div>
+  <div>Status: <span id="earthStatus">—</span></div>
+
+  <div class="horizon" id="earthHorizon">
+    <div class="line"></div>
+    <div class="label">HORIZON</div>
+    <div class="earth-marker" id="earthMarker" style="display:none"></div>
+  </div>
+
+  <h3>Site Comparison</h3>
+  <select id="compareA" style="width:48%;background:#1a2a4a;color:#c0d8f0;border:1px solid #3a5a8a;border-radius:4px;padding:4px;"></select>
+  <select id="compareB" style="width:48%;background:#1a2a4a;color:#c0d8f0;border:1px solid #3a5a8a;border-radius:4px;padding:4px;"></select>
+  <div class="compare-row" id="compareResult"></div>
+
+  <div class="disclaimer">
+    <strong>NASA Resources</strong><br>
+    <a href="https://www.nasa.gov/mission/artemis/" target="_blank" rel="noopener">Artemis Program</a><br>
+    <a href="https://www.nasa.gov/news-release/nasa-identifies-candidate-regions-for-landing-next-americans-on-moon/" target="_blank" rel="noopener">Artemis III Candidate Regions</a><br>
+    <a href="https://lunar.gsfc.nasa.gov/lola/" target="_blank" rel="noopener">LRO / LOLA</a><br>
+    <a href="https://pds.nasa.gov/" target="_blank" rel="noopener">NASA PDS (DEM data)</a><br>
+    Real high-res DEMs (LOLA, SLDEM2015) available via PDS / USGS Astrogeology for exact horizon modeling.
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ========== CONFIG ==========
+const EARTH_RADIUS = 6.371;          // visual units
+const MOON_RADIUS  = 1.737;
+const MOON_ORBIT   = 40;             // visual distance
+const SUN_DIST     = 800;
+
+// Educational candidate sites (approximate lat/lon from public Artemis literature)
+const SITES = [
+  { name: "Shackleton Rim",      lat: -89.90, lon:   0.0,  note: "Near true South Pole; high illumination potential on rim" },
+  { name: "de Gerlache Rim",     lat: -88.50, lon: -87.0,  note: "Rim of de Gerlache; good illumination + PSR access" },
+  { name: "Haworth Crater",      lat: -86.75, lon: -22.8,  note: "Artemis candidate region; pre-Nectarian crater" },
+  { name: "Faustini Crater",     lat: -87.87, lon:  90.0,  note: "Artemis Faustini Rim A region" },
+  { name: "Malapert Mountain",   lat: -85.98, lon:  -0.4,  note: "High elevation massif; near-continuous Earth view" }
+];
+
+// ========== SCENE ==========
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x030308);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+camera.position.set(0, 25, 70);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 8;
+controls.maxDistance = 300;
+controls.target.set(0, 0, 0);
+
+// Lighting
+const ambient = new THREE.AmbientLight(0x222233, 0.4);
+scene.add(ambient);
+const sunLight = new THREE.DirectionalLight(0xfff5e0, 2.2);
+scene.add(sunLight);
+const fill = new THREE.DirectionalLight(0x4466aa, 0.15);
+fill.position.set(-50, 20, -30);
+scene.add(fill);
+
+// Starfield
+function makeStars() {
+  const geo = new THREE.BufferGeometry();
+  const count = 4000;
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = 900 + Math.random() * 600;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    pos[i*3+2] = r * Math.cos(phi);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.9, sizeAttenuation: true, transparent: true, opacity: 0.85 });
+  scene.add(new THREE.Points(geo, mat));
+}
+makeStars();
+
+// Earth
+const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 64, 64);
+const earthMat = new THREE.MeshPhongMaterial({
+  color: 0x2266aa,
+  emissive: 0x001122,
+  shininess: 15
+});
+// Try realistic texture
+const texLoader = new THREE.TextureLoader();
+texLoader.crossOrigin = 'anonymous';
+try {
+  const earthTex = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg');
+  earthMat.map = earthTex;
+  earthMat.color.set(0xffffff);
+} catch(e) {}
+const earth = new THREE.Mesh(earthGeo, earthMat);
+scene.add(earth);
+
+// Simple cloud layer
+const cloudGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.015, 48, 48);
+const cloudMat = new THREE.MeshPhongMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depth: THREE.DoubleSide });
+const clouds = new THREE.Mesh(cloudGeo, cloudMat);
+earth.add(clouds);
+
+// Moon
+const moonGeo = new THREE.SphereGeometry(MOON_RADIUS, 64, 64);
+const moonMat = new THREE.MeshPhongMaterial({
+  color: 0xaaaaaa,
+  emissive: 0x111111,
+  shininess: 5
+});
+try {
+  const moonTex = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/moon_1024.jpg');
+  moonMat.map = moonTex;
+  moonMat.color.set(0xffffff);
+} catch(e) {}
+const moon = new THREE.Mesh(moonGeo, moonMat);
+scene.add(moon);
+
+// Orbit path (visual)
+const orbitCurve = new THREE.EllipseCurve(0, 0, MOON_ORBIT, MOON_ORBIT, 0, 2*Math.PI, false, 0);
+const orbitPts = orbitCurve.getPoints(128);
+const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPts.map(p => new THREE.Vector3(p.x, 0, p.y)));
+const orbitMat = new THREE.LineBasicMaterial({ color: 0x334466, transparent: true, opacity: 0.5 });
+scene.add(new THREE.LineLoop(orbitGeo, orbitMat));
+
+// Sun (visual only, far)
+const sunMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(8, 32, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffee88 })
+);
+scene.add(sunMesh);
+
+// Site markers (small dots)
+const markerGroup = new THREE.Group();
+moon.add(markerGroup);
+const markers = [];
+const markerGeo = new THREE.SphereGeometry(0.035, 12, 12);
+
+function latLonToVector3(lat, lon, radius) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -radius * Math.sin(phi) * Math.cos(theta),
+     radius * Math.cos(phi),
+     radius * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+SITES.forEach((s, i) => {
+  const m = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: 0xffcc44 }));
+  m.position.copy(latLonToVector3(s.lat, s.lon, MOON_RADIUS * 1.01));
+  m.userData = { siteIndex: i, isSite: true };
+  markerGroup.add(m);
+  markers.push(m);
+});
+
+// Custom marker
+const customMarker = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: 0x44ff88 }));
+customMarker.visible = false;
+markerGroup.add(customMarker);
+
+// ========== STATE ==========
+let currentSite = { ...SITES[0], isCustom: false };
+let dayOfYear = 180;
+let moonAngle = 0;
+
+// ========== SIMPLIFIED ORBIT / POSITION MATH ==========
+// Very simplified educational model.
+// Moon mean motion ~ 13.176°/day, inclination ignored for visual orbit.
+// Sun direction approximates annual + diurnal effect via day-of-year + lunar phase proxy.
+// Local horizon transform uses spherical geometry only (no DEM obstruction).
+
+function deg2rad(d) { return d * Math.PI / 180; }
+function rad2deg(r) { return r * 180 / Math.PI; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+function updateBodies() {
+  // Moon position (circular orbit for visual)
+  moonAngle = (dayOfYear / 27.3) * Math.PI * 2;  // sidereal month approx
+  moon.position.set(
+    Math.cos(moonAngle) * MOON_ORBIT,
+    0,
+    Math.sin(moonAngle) * MOON_ORBIT
+  );
+  // Keep Moon facing Earth roughly (tidal lock visual)
+  moon.lookAt(0, 0, 0);
+  moon.rotateY(Math.PI); // adjust so near-side faces Earth-ish
+
+  // Sun far away – direction based on day of year (simplified)
+  const sunLon = (dayOfYear / 365.25) * Math.PI * 2;
+  const sunDir = new THREE.Vector3(Math.cos(sunLon), 0.15, Math.sin(sunLon)).normalize();
+  sunMesh.position.copy(sunDir.clone().multiplyScalar(SUN_DIST));
+  sunLight.position.copy(sunMesh.position);
+}
+
+// Local horizontal coordinates for a body direction relative to a lunar site
+// Returns altitude (deg), azimuth (deg, 0=N, 90=E) – educational approximation
+function bodyLocalHorizon(siteLat, siteLon, bodyWorldPos, siteWorldPos) {
+  // Vector from site to body
+  const toBody = new THREE.Vector3().subVectors(bodyWorldPos, siteWorldPos).normalize();
+
+  // Local frame at site (simplified spherical)
+  // Up = radial
+  const up = siteWorldPos.clone().normalize();
+  // East ≈ up × world-Y (approx)
+  let east = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), up).normalize();
+  if (east.lengthSq() < 0.01) east = new THREE.Vector3(1,0,0); // pole singularity
+  const north = new THREE.Vector3().crossVectors(up, east).normalize();
+
+  const alt = rad2deg(Math.asin(clamp(toBody.dot(up), -1, 1)));
+  const eComp = toBody.dot(east);
+  const nComp = toBody.dot(north);
+  let az = rad2deg(Math.atan2(eComp, nComp));
+  if (az < 0) az += 360;
+
+  return { alt, az };
+}
+
+function computeSiteData(site) {
+  const sitePos = latLonToVector3(site.lat, site.lon, MOON_RADIUS).add(moon.position);
+  const earthPos = new THREE.Vector3(0,0,0);
+  const sunPos = sunMesh.position.clone();
+
+  const sunH = bodyLocalHorizon(site.lat, site.lon, sunPos, sitePos);
+  const earthH = bodyLocalHorizon(site.lat, site.lon, earthPos, sitePos);
+
+  // Solar power proxy (0-100) based on altitude, simple cosine + polar bias
+  let solarPct = 0;
+  if (sunH.alt > 0) {
+    solarPct = Math.sin(deg2rad(sunH.alt)) * 100;
+    // Polar sites can have long periods of low but continuous light
+    if (Math.abs(site.lat) > 85) solarPct = Math.min(100, solarPct * 1.15 + 8);
+  }
+  solarPct = clamp(solarPct, 0, 100);
+
+  let sunCat = 'LOW SUNLIGHT';
+  let sunClass = 'low';
+  if (sunH.alt > 15) { sunCat = 'GOOD SUNLIGHT'; sunClass = 'good'; }
+  else if (sunH.alt > 3) { sunCat = 'MODERATE SUNLIGHT'; sunClass = 'mod'; }
+  else if (sunH.alt > 0) { sunCat = 'LOW SUNLIGHT'; sunClass = 'low'; }
+  else { sunCat = 'BELOW HORIZON'; sunClass = 'bad'; }
+
+  const earthVis = earthH.alt > 0;
+  const earthStatus = earthVis ? 'DIRECT COMMUNICATION AVAILABLE' : 'DIRECT COMMUNICATION UNAVAILABLE';
+  const earthClass = earthVis ? 'good' : 'bad';
+
+  return { sunH, earthH, solarPct, sunCat, sunClass, earthStatus, earthClass };
+}
+
+// ========== UI UPDATE ==========
+function updateUI() {
+  const data = computeSiteData(currentSite);
+  document.getElementById('siteName').textContent = currentSite.name + (currentSite.isCustom ? ' (custom)' : '');
+  document.getElementById('siteCoords').textContent = `${currentSite.lat.toFixed(2)}°, ${currentSite.lon.toFixed(2)}°`;
+
+  document.getElementById('sunAlt').textContent = data.sunH.alt.toFixed(1);
+  document.getElementById('sunAz').textContent = data.sunH.az.toFixed(1);
+  document.getElementById('sunStatus').innerHTML = `<span class="${data.sunClass}">${data.sunCat}</span>`;
+  document.getElementById('solarBar').style.width = data.solarPct.toFixed(0) + '%';
+  document.getElementById('solarPower').textContent = data.solarPct.toFixed(0) + '% (educational estimate)';
+
+  document.getElementById('earthAlt').textContent = data.earthH.alt.toFixed(1);
+  document.getElementById('earthAz').textContent = data.earthH.az.toFixed(1);
+  document.getElementById('earthStatus').innerHTML = `<span class="${data.earthClass}">${data.earthStatus}</span>`;
+
+  // Horizon markers (simple 2D projection of alt/az)
+  placeHorizonMarker('sunMarker', data.sunH.alt, data.sunH.az);
+  placeHorizonMarker('earthMarker', data.earthH.alt, data.earthH.az);
+
+  // Highlight selected predefined marker
+  markers.forEach((m, i) => {
+    m.material.color.set(i === currentSite.index ? 0xff6622 : 0xffcc44);
+    m.scale.setScalar(i === currentSite.index ? 1.8 : 1);
+  });
+}
+
+function placeHorizonMarker(id, alt, az) {
+  const el = document.getElementById(id);
+  if (alt < -5) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  // Map az 0-360 → x 5%-95%, alt -10..+50 → y
+  const x = 5 + (az / 360) * 90;
+  const y = 55 - (alt / 50) * 45; // higher alt = higher on diagram
+  el.style.left = clamp(x, 3, 97) + '%';
+  el.style.top  = clamp(y, 8, 90) + '%';
+}
+
+// Date label
+function updateDateLabel() {
+  const d = new Date(2025, 0, 1);
+  d.setDate(d.getDate() + dayOfYear);
+  document.getElementById('dateLabel').textContent = d.toISOString().slice(0, 10);
+}
+
+// Site list
+function buildSiteList() {
+  const list = document.getElementById('siteList');
+  list.innerHTML = '';
+  SITES.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'site-item' + (currentSite.index === i ? ' selected' : '');
+    div.textContent = s.name;
+    div.onclick = () => selectSite(i);
+    list.appendChild(div);
+  });
+  // Populate compare selects
+  const selA = document.getElementById('compareA');
+  const selB = document.getElementById('compareB');
+  selA.innerHTML = selB.innerHTML = '';
+  SITES.forEach((s, i) => {
+    selA.innerHTML += `<option value="${i}">${s.name}</option>`;
+    selB.innerHTML += `<option value="${i}">${s.name}</option>`;
+  });
+  selB.value = '1';
+  updateCompare();
+}
+
+function selectSite(index) {
+  currentSite = { ...SITES[index], index, isCustom: false };
+  customMarker.visible = false;
+  buildSiteList();
+  updateUI();
+  // Focus camera gently toward site
+  const target = latLonToVector3(currentSite.lat, currentSite.lon, MOON_RADIUS).add(moon.position);
+  animateCameraTo(target, MOON_RADIUS * 4);
+}
+
+function updateCompare() {
+  const iA = +document.getElementById('compareA').value;
+  const iB = +document.getElementById('compareB').value;
+  const dA = computeSiteData(SITES[iA]);
+  const dB = computeSiteData(SITES[iB]);
+  const html = `
+    <div class="compare-card">
+      <strong>${SITES[iA].name}</strong><br>
+      Sun alt: ${dA.sunH.alt.toFixed(1)}° (${dA.sunCat})<br>
+      Solar: ${dA.solarPct.toFixed(0)}%<br>
+      Earth: ${dA.earthH.alt > 0 ? 'Visible' : 'Hidden'}
+    </div>
+    <div class="compare-card">
+      <strong>${SITES[iB].name}</strong><br>
+      Sun alt: ${dB.sunH.alt.toFixed(1)}° (${dB.sunCat})<br>
+      Solar: ${dB.solarPct.toFixed(0)}%<br>
+      Earth: ${dB.earthH.alt > 0 ? 'Visible' : 'Hidden'}
+    </div>`;
+  document.getElementById('compareResult').innerHTML = html;
+}
+
+// ========== INTERACTION ==========
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  // Check markers first
+  const hits = raycaster.intersectObjects(markers, false);
+  if (hits.length) {
+    selectSite(hits[0].object.userData.siteIndex);
+    return;
+  }
+  // Click on Moon surface → custom site
+  const moonHits = raycaster.intersectObject(moon, false);
+  if (moonHits.length) {
+    const local = moon.worldToLocal(moonHits[0].point.clone());
+    const r = local.length();
+    const lat = 90 - rad2deg(Math.acos(clamp(local.y / r, -1, 1)));
+    let lon = rad2deg(Math.atan2(local.z, -local.x)) - 180;
+    if (lon < -180) lon += 360;
+    if (lon > 180) lon -= 360;
+
+    currentSite = {
+      name: 'Custom Point',
+      lat, lon,
+      note: 'User-selected location',
+      isCustom: true,
+      index: -1
+    };
+    customMarker.position.copy(local.normalize().multiplyScalar(MOON_RADIUS * 1.01));
+    customMarker.visible = true;
+    markers.forEach(m => { m.material.color.set(0xffcc44); m.scale.setScalar(1); });
+    buildSiteList();
+    updateUI();
+  }
+});
+
+// Camera focus helpers
+function animateCameraTo(target, distance) {
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+  const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+  const endPos = target.clone().add(dir.multiplyScalar(distance));
+  let t = 0;
+  function step() {
+    t += 0.04;
+    if (t > 1) t = 1;
+    camera.position.lerpVectors(startPos, endPos, t);
+    controls.target.lerpVectors(startTarget, target, t);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+document.getElementById('btnEarth').onclick = () => {
+  controls.target.set(0,0,0);
+  camera.position.set(0, 15, 35);
+};
+document.getElementById('btnMoon').onclick = () => {
+  controls.target.copy(moon.position);
+  camera.position.copy(moon.position).add(new THREE.Vector3(8, 4, 12));
+};
+document.getElementById('btnSouthPole').onclick = () => {
+  const pole = latLonToVector3(-90, 0, MOON_RADIUS).add(moon.position);
+  controls.target.copy(pole);
+  camera.position.copy(pole).add(new THREE.Vector3(0.5, -3, 0.5));
+};
+document.getElementById('btnReset').onclick = () => {
+  controls.target.set(0,0,0);
+  camera.position.set(0, 25, 70);
+};
+
+document.getElementById('dateSlider').oninput = (e) => {
+  dayOfYear = +e.target.value;
+  updateDateLabel();
+  updateBodies();
+  updateUI();
+  updateCompare();
+};
+document.getElementById('compareA').onchange = updateCompare;
+document.getElementById('compareB').onchange = updateCompare;
+
+// ========== RESIZE & LOOP ==========
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  clouds.rotation.y += 0.0003;
+  renderer.render(scene, camera);
+}
+
+// Init
+updateBodies();
+updateDateLabel();
+buildSiteList();
+selectSite(0);
+document.getElementById('loading').style.display = 'none';
+animate();
+</script>
+</body>
+</html>
